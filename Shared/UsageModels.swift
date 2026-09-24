@@ -10,7 +10,6 @@ enum ConfigLocation {
         return FileManager.default.homeDirectoryForCurrentUser
     }
     static var url: URL { home.appendingPathComponent(".claude/claude-usage-widget.json") }
-    static var codexAuthURL: URL { home.appendingPathComponent(".codex/auth.json") }
 }
 
 struct WidgetConfig: Codable, Sendable {
@@ -18,9 +17,6 @@ struct WidgetConfig: Codable, Sendable {
     var organizationId: String?
     var oauthToken: String?
     var claudeEnabled: Bool?
-    var codexEnabled: Bool?
-    var codexAccessToken: String?
-    var codexAccountId: String?
 
     static func load(from url: URL = ConfigLocation.url) throws -> WidgetConfig {
         guard FileManager.default.fileExists(atPath: url.path) else { return WidgetConfig() }
@@ -36,6 +32,7 @@ struct WidgetConfig: Codable, Sendable {
             }
             json = existing
         }
+        // Codex keys are dropped too, so tokens left by upstream versions do not linger on disk.
         let fields = ["sessionKey", "organizationId", "oauthToken", "claudeEnabled",
                       "codexEnabled", "codexAccessToken", "codexAccountId"]
         fields.forEach { json.removeValue(forKey: $0) }
@@ -79,7 +76,6 @@ struct ProviderUsage: Sendable {
 struct UsageSnapshot: Sendable {
     let date: Date
     let claude: ProviderUsage
-    let codex: ProviderUsage
 
     static var preview: UsageSnapshot {
         let now = Date()
@@ -87,9 +83,6 @@ struct UsageSnapshot: Sendable {
             UsageMetric(id: "five_hour", title: "5h Session", percent: 42.5, resetsAt: now.addingTimeInterval(10800)),
             UsageMetric(id: "seven_day", title: "Weekly", percent: 28, resetsAt: now.addingTimeInterval(259200)),
             UsageMetric(id: "fable", title: "Fable · Weekly", percent: 61, resetsAt: now.addingTimeInterval(259200))
-        ]), codex: ProviderUsage(name: "Codex", metrics: [
-            UsageMetric(id: "primary", title: "5h Session", percent: 35, resetsAt: now.addingTimeInterval(7200)),
-            UsageMetric(id: "secondary", title: "Weekly", percent: 18, resetsAt: now.addingTimeInterval(172800))
         ]))
     }
 }
@@ -146,32 +139,10 @@ enum UsageParser {
         guard metrics.contains(where: { $0.percent != nil }) else { throw UsageError.noLimits }
         return ProviderUsage(name: "Claude", metrics: metrics)
     }
-
-    static func codex(_ data: Data) throws -> ProviderUsage {
-        let json = try object(data)
-        let rate = json["rate_limit"] as? [String: Any] ?? [:]
-        let metrics = [("primary_window", "primary"), ("secondary_window", "secondary")].compactMap { key, id -> UsageMetric? in
-            guard let window = rate[key] as? [String: Any] else { return nil }
-            let seconds = number(window["limit_window_seconds"])
-            let title: String
-            switch seconds {
-            case 18000: title = "5h Session"
-            case 604800: title = "Weekly"
-            case .some(let duration) where duration > 0:
-                title = duration >= 86400 ? "\(Int(duration / 86400))d Window" :
-                    duration >= 3600 ? "\(Int(duration / 3600))h Window" : "\(Int(duration / 60))m Window"
-            default: title = id == "primary" ? "Primary" : "Secondary"
-            }
-            return UsageMetric(id: id, title: title, percent: number(window["used_percent"]),
-                               resetsAt: date(window["reset_at"]))
-        }
-        guard metrics.contains(where: { $0.percent != nil }) else { throw UsageError.noLimits }
-        return ProviderUsage(name: "Codex", metrics: metrics)
-    }
 }
 
 enum UsageError: LocalizedError {
-    case invalidResponse, noLimits, http(Int), missingClaude, missingCodex, invalidConfig
+    case invalidResponse, noLimits, http(Int), missingClaude, invalidConfig
 
     var errorDescription: String? {
         switch self {
@@ -182,7 +153,6 @@ enum UsageError: LocalizedError {
         case .http(429): return "Rate limited. Wait for the next refresh."
         case .http(let code): return "Usage service returned HTTP \(code)."
         case .missingClaude: return "Add Claude credentials in the app."
-        case .missingCodex: return "Sign in with Codex CLI, or add a token in the app."
         case .invalidConfig: return "Cannot read configuration. Open the app to fix it."
         }
     }

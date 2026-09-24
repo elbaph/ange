@@ -9,7 +9,6 @@
 	<key>com.apple.security.temporary-exception.files.home-relative-path.read-only</key>
 	<array>
 		<string>/.claude/claude-usage-widget.json</string>
-		<string>/.codex/auth.json</string>
 	</array>
 </dict>
 </plist>

@@ -50,46 +50,22 @@ final class UsageCoreTests: XCTestCase {
         XCTAssertEqual(UsageMetric(id: "x", title: "x", percent: -10, resetsAt: nil).fraction, 0)
     }
 
-    func testCodexWeeklyPrimaryIsNotLabelledFiveHours() throws {
-        let result = try UsageParser.codex(data("""
-        {"rate_limit":{"primary_window":{"used_percent":40,"limit_window_seconds":604800,
-         "reset_at":1788749023},"secondary_window":null},
-         "additional_rate_limits":[{"limit_name":"Other", "rate_limit":{
-          "primary_window":{"used_percent":99,"limit_window_seconds":18000}}}]}
-        """))
-        XCTAssertEqual(result.metrics.count, 1)
-        XCTAssertEqual(result.metrics[0].title, "Weekly")
-        XCTAssertEqual(result.metrics[0].percent, 40)
-        XCTAssertEqual(result.metrics[0].resetsAt, Date(timeIntervalSince1970: 1788749023))
-    }
-
-    func testCodexTwoWindowsAndNullPercent() throws {
-        let result = try UsageParser.codex(data("""
-        {"rate_limit":{"primary_window":{"used_percent":0,"limit_window_seconds":18000},
-         "secondary_window":{"used_percent":null,"limit_window_seconds":604800}}}
-        """))
-        XCTAssertEqual(result.metrics.map(\.title), ["5h Session", "Weekly"])
-        XCTAssertEqual(result.metrics.map(\.percentageText), ["0%", "—"])
-        XCTAssertThrowsError(try UsageParser.codex(data("{\"rate_limit\":null}")))
-        XCTAssertThrowsError(try UsageParser.codex(data("[]")))
-    }
-
     func testOldConfigMigrationPreservesUnknownFieldsAndSecuresFile() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appendingPathComponent("config.json")
-        try data("{\"sessionKey\":\"old\",\"futureField\":42}").write(to: url)
+        try data("{\"sessionKey\":\"old\",\"futureField\":42,\"codexAccessToken\":\"legacy\"}").write(to: url)
         var config = try WidgetConfig.load(from: url)
         XCTAssertEqual(config.sessionKey, "old")
-        XCTAssertNil(config.codexEnabled)
         config.sessionKey = nil
-        config.codexEnabled = false
+        config.claudeEnabled = false
         try config.save(to: url)
         let saved = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as! [String: Any]
         XCTAssertNil(saved["sessionKey"])
+        XCTAssertNil(saved["codexAccessToken"])
         XCTAssertEqual(saved["futureField"] as? Int, 42)
-        XCTAssertEqual(try WidgetConfig.load(from: url).codexEnabled, false)
+        XCTAssertEqual(try WidgetConfig.load(from: url).claudeEnabled, false)
         let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
         XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.intValue, 0o600)
     }
@@ -129,26 +105,19 @@ final class UsageClientTests: XCTestCase {
     }
     override func tearDown() { session.invalidateAndCancel(); StubProtocol.handler = nil }
 
-    func testClaudeFailureDoesNotHideCodexAndAuthGoesToCorrectHost() async {
+    func testOAuthGoesToAnthropicOnly() async {
         StubProtocol.handler = { request in
-            if request.url?.host == "api.anthropic.com" {
-                XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer claude-test")
-                XCTAssertNil(request.value(forHTTPHeaderField: "ChatGPT-Account-Id"))
-                return (401, "{}")
-            }
-            XCTAssertEqual(request.url?.absoluteString, "https://chatgpt.com/backend-api/wham/usage")
-            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer codex-test")
-            XCTAssertEqual(request.value(forHTTPHeaderField: "ChatGPT-Account-Id"), "account-test")
-            return (200, "{\"rate_limit\":{\"primary_window\":{\"used_percent\":10,\"limit_window_seconds\":18000}}}")
+            XCTAssertEqual(request.url?.absoluteString, "https://api.anthropic.com/api/oauth/usage")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer claude-test")
+            XCTAssertNil(request.value(forHTTPHeaderField: "Cookie"))
+            return (200, "{\"five_hour\":{\"utilization\":10}}")
         }
-        let result = await UsageClient(session: session).fetch(config: WidgetConfig(
-            oauthToken: "claude-test", codexAccessToken: "codex-test", codexAccountId: "account-test"))
-        XCTAssertNotNil(result.claude.error)
-        XCTAssertNil(result.codex.error)
-        XCTAssertEqual(result.codex.metrics.first?.percent, 10)
+        let result = await UsageClient(session: session).fetch(config: WidgetConfig(oauthToken: "claude-test"))
+        XCTAssertNil(result.claude.error)
+        XCTAssertEqual(result.claude.metrics.first?.percent, 10)
     }
 
-    func testOAuthFallsBackToSessionAndDisabledCodexDoesNotFetch() async {
+    func testOAuthFallsBackToSession() async {
         StubProtocol.handler = { request in
             if request.url?.host == "api.anthropic.com" { return (401, "{}") }
             XCTAssertEqual(request.url?.host, "claude.ai")
@@ -158,35 +127,22 @@ final class UsageClientTests: XCTestCase {
         }
         let result = await UsageClient(session: session).fetch(config: WidgetConfig(
             sessionKey: "session-test", organizationId: "11111111-1111-1111-1111-111111111111",
-            oauthToken: "expired-test", codexEnabled: false))
+            oauthToken: "expired-test"))
         XCTAssertNil(result.claude.error)
         XCTAssertEqual(result.claude.metrics.first?.percent, 22.2)
-        XCTAssertFalse(result.codex.isEnabled)
     }
 
-    func testCodexRereadsRotatedLocalAuthAndRejectsAPIKeyOnly() async throws {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: url) }
-        let client = UsageClient(session: session, codexAuthURL: url)
-        for token in ["first-token", "rotated-token"] {
-            try Data("{\"tokens\":{\"access_token\":\"\(token)\",\"account_id\":\"test\"}}".utf8).write(to: url)
-            StubProtocol.handler = { request in
-                XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer \(token)")
-                return (200, "{\"rate_limit\":{\"primary_window\":{\"used_percent\":0}}}")
-            }
-            let result = await client.fetchCodex(WidgetConfig())
-            XCTAssertNil(result.error)
-        }
-        try Data("{\"OPENAI_API_KEY\":\"test\"}".utf8).write(to: url)
-        StubProtocol.handler = { _ in XCTFail("Must not send API key to subscription endpoint"); return (500, "{}") }
-        let result = await client.fetchCodex(WidgetConfig())
-        XCTAssertNotNil(result.error)
+    func testDisabledClaudeDoesNotFetch() async {
+        StubProtocol.handler = { _ in XCTFail("Disabled provider must not fetch"); return (500, "{}") }
+        let result = await UsageClient(session: session).fetch(config: WidgetConfig(
+            oauthToken: "claude-test", claudeEnabled: false))
+        XCTAssertFalse(result.claude.isEnabled)
     }
 
     func testRateLimitErrorAndInvalidOrganization() async {
         StubProtocol.handler = { _ in (429, "{}") }
         let client = UsageClient(session: session)
-        let result = await client.fetchCodex(WidgetConfig(codexAccessToken: "test"))
+        let result = await client.fetchClaude(WidgetConfig(oauthToken: "test"))
         XCTAssertEqual(result.error, UsageError.http(429).localizedDescription)
         let invalid = await client.fetchClaude(WidgetConfig(sessionKey: "test", organizationId: "../wrong?query"))
         XCTAssertEqual(invalid.error, "Organization ID must be a UUID.")

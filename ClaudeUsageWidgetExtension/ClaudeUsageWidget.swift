@@ -29,8 +29,7 @@ struct ClaudeUsageProvider: TimelineProvider {
         } catch {
             let message = UsageError.invalidConfig.localizedDescription
             return ClaudeUsageEntry(snapshot: UsageSnapshot(date: Date(),
-                claude: ProviderUsage(name: "Claude", error: message),
-                codex: ProviderUsage(name: "Codex", error: message)))
+                claude: ProviderUsage(name: "Claude", error: message)))
         }
     }
 }
@@ -54,8 +53,8 @@ struct ClaudeUsageWidget: Widget {
         StaticConfiguration(kind: kind, provider: ClaudeUsageProvider()) { entry in
             ClaudeUsageWidgetView(entry: entry)
         }
-        .configurationDisplayName("Claude & Codex Usage")
-        .description("Claude, Fable and Codex usage limits and reset times. Percentages show usage consumed.")
+        .configurationDisplayName("Claude Usage")
+        .description("Claude and Fable usage limits and reset times. Percentages show usage consumed.")
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
     }
 }

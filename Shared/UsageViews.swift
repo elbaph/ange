@@ -78,7 +78,7 @@ struct ProviderUsageView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: compact ? 3 : 7) {
             HStack(spacing: 5) {
-                Circle().fill(usage.name == "Claude" ? Color.orange : Color.teal)
+                Circle().fill(Color.orange)
                     .frame(width: 6, height: 6)
                 Text(usage.name).font(.system(size: compact ? (showReset ? 12 : 11) : 14, weight: .bold))
                 Spacer(minLength: 0)
@@ -109,22 +109,12 @@ struct UsageDashboardView: View {
         VStack(alignment: .leading, spacing: small ? 3 : 8) {
             if large {
                 HStack {
-                    Text("AI Usage").font(.headline)
+                    Text("Claude Usage").font(.headline)
                     Spacer()
                     Text("Used").font(.caption).foregroundStyle(.secondary)
                 }
             }
-            if small || large {
-                ProviderUsageView(usage: snapshot.claude, compact: !large, showReset: large)
-                Divider()
-                ProviderUsageView(usage: snapshot.codex, compact: !large, showReset: large)
-            } else {
-                HStack(alignment: .top, spacing: 14) {
-                    ProviderUsageView(usage: snapshot.claude, compact: true)
-                    Divider()
-                    ProviderUsageView(usage: snapshot.codex, compact: true)
-                }
-            }
+            ProviderUsageView(usage: snapshot.claude, compact: !large, showReset: !small)
             if large {
                 Spacer(minLength: 0)
                 HStack(spacing: 3) {

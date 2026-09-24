@@ -2,12 +2,9 @@ import Foundation
 
 struct UsageClient {
     var session: URLSession = .shared
-    var codexAuthURL: URL = ConfigLocation.codexAuthURL
 
     func fetch(config: WidgetConfig) async -> UsageSnapshot {
-        async let claude = fetchClaude(config)
-        async let codex = fetchCodex(config)
-        return await UsageSnapshot(date: Date(), claude: claude, codex: codex)
+        await UsageSnapshot(date: Date(), claude: fetchClaude(config))
     }
 
     private func get(_ request: URLRequest) async throws -> Data {
@@ -43,39 +40,6 @@ struct UsageClient {
             do { return try UsageParser.claude(await get(req)) } catch { failure = error }
         }
         return ProviderUsage(name: "Claude", error: failure.localizedDescription)
-    }
-
-    func fetchCodex(_ config: WidgetConfig) async -> ProviderUsage {
-        guard config.codexEnabled != false else { return ProviderUsage(name: "Codex", isEnabled: false) }
-        do {
-            let token: String
-            let account: String?
-            if let manual = config.codexAccessToken?.nonempty {
-                token = manual
-                account = config.codexAccountId?.nonempty
-            } else {
-                // Re-read each time so Codex's token rotation and account switches are reflected.
-                guard let data = try? Data(contentsOf: codexAuthURL),
-                      let auth = try? JSONDecoder().decode(CodexAuth.self, from: data),
-                      let access = auth.tokens?.access_token?.nonempty else { throw UsageError.missingCodex }
-                token = access
-                account = auth.tokens?.account_id?.nonempty
-            }
-            var req = request(URL(string: "https://chatgpt.com/backend-api/wham/usage")!)
-            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            if let account { req.setValue(account, forHTTPHeaderField: "ChatGPT-Account-Id") }
-            return try UsageParser.codex(await get(req))
-        } catch {
-            return ProviderUsage(name: "Codex", error: error.localizedDescription)
-        }
-    }
-}
-
-private struct CodexAuth: Decodable {
-    let tokens: Tokens?
-    struct Tokens: Decodable {
-        let access_token: String?
-        let account_id: String?
     }
 }
 
