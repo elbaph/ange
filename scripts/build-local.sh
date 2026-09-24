@@ -10,8 +10,8 @@ xcodebuild -project ClaudeUsageWidget.xcodeproj -scheme ClaudeUsageWidget \
   -derivedDataPath "$usage_build_dir" \
   ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO \
   CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= build
-usage_app="$usage_build_dir/Build/Products/Release/ClaudeUsageWidget.app"
+usage_app="$usage_build_dir/Build/Products/Release/ange.app"
 codesign --verify --deep --strict "$usage_app"
 mkdir -p build
-ditto -c -k --norsrc --noextattr --keepParent "$usage_app" build/ClaudeUsageWidget-1.1.zip
-printf 'Created %s/build/ClaudeUsageWidget-1.1.zip\n' "$PWD"
+ditto -c -k --norsrc --noextattr --keepParent "$usage_app" build/ange-1.1.zip
+printf 'Created %s/build/ange-1.1.zip\n' "$PWD"

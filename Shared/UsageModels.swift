@@ -41,15 +41,14 @@ struct WidgetConfig: Codable, Sendable {
         }
         json.merge(values) { _, new in new }
         let data = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
-        let directory = url.deletingLastPathComponent()
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let temporary = directory.appendingPathComponent(".usage-config-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: temporary) }
-        guard FileManager.default.createFile(atPath: temporary.path, contents: data,
-                                             attributes: [.posixPermissions: 0o600]) else {
-            throw CocoaError(.fileWriteUnknown)
-        }
-        guard rename(temporary.path, url.path) == 0 else { throw CocoaError(.fileWriteUnknown) }
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        // Sandbox only grants this exact path, so no temp-file-and-rename; write in place instead.
+        let fd = open(url.path, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        guard fd >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+        guard fchmod(fd, 0o600) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        try handle.write(contentsOf: data)
+        try handle.synchronize()
     }
 }
 
