@@ -1,3 +1,13 @@
+> [!IMPORTANT]
+> **本專案已停止維護, 請勿安裝.**
+>
+> 這個 App 會要求你提供 Claude OAuth token (例如由 `claude setup-token` 產生), 存在本機, 再用它輪詢一個未公開的用量 API. 依 Anthropic 官方文件, 這並不是這類 token 的用途:
+>
+> - `claude setup-token` 產生的長效 token, 是讓 **Claude Code** 在 CI pipeline, 腳本或其他無法用瀏覽器登入的環境中, 透過 `CLAUDE_CODE_OAUTH_TOKEN` 驗證身分用的. ([Authentication](https://code.claude.com/docs/en/authentication#generate-a-long-lived-token))
+> - OAuth 驗證只供 Claude Code 與其他 Anthropic 原生 App 的一般使用. 第三方工具不得收集, 儲存或轉介 Claude.ai 的憑證或 session token, Anthropic 可不經通知採取執行措施. ([Legal and compliance](https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use))
+>
+> 以這種方式使用訂閱 token, 可能讓你的 Claude 帳號承擔風險. 查詢用量請在 Claude Code 執行 `/usage`, 或到 claude.ai 的 Settings → Usage.
+
 # ange
 
 macOS 桌面小工具 (WidgetKit), 監看你的 Claude 與 Claude Fable 訂閱用量.
